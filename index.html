@@ -8,7 +8,7 @@
 *{box-sizing:border-box}body{margin:0}header{background:#123b68;color:#fff;padding:16px}header h1{font-size:20px;margin:0 0 4px}header p{margin:0;font-size:13px;opacity:.9}
 main{max-width:900px;margin:auto;padding:14px}.card{background:#fff;border:1px solid #e1e8f0;border-radius:14px;padding:16px;margin:12px 0;box-shadow:0 2px 8px #1720330a}
 h2{font-size:18px;margin:0 0 12px}h3{font-size:16px;margin:12px 0 8px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}
-label{display:block;font-size:13px;margin:8px 0 4px;color:#44516a}input,select,textarea{width:100%;padding:11px;border:1px solid #cbd5e1;border-radius:9px;font:inherit;background:white}button{border:0;border-radius:9px;padding:11px 14px;background:#1769aa;color:white;font:inherit;font-weight:650;cursor:pointer;margin:5px 4px 3px 0}button.secondary{background:#e8eef5;color:#24364d}button.danger{background:#b42318}button.good{background:#167447}.hidden{display:none!important}.muted{color:#68758b;font-size:13px}.msg{padding:10px;border-radius:8px;background:#fff4d6;color:#77530b;margin:8px 0;white-space:pre-wrap}.success{background:#e5f7eb;color:#14532d}.error{background:#feecec;color:#991b1b}.topline{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}.pill{display:inline-block;padding:4px 8px;border-radius:99px;background:#e8eef5;font-size:12px}.pending{background:#fff0c2}.approved{background:#d9f7e5}.rejected{background:#ffe0e0}.item{border:1px solid #e1e8f0;border-radius:10px;padding:12px;margin:8px 0}.item strong{display:inline-block;margin-bottom:4px}.small{font-size:12px}footer{text-align:center;color:#7a8799;font-size:12px;padding:20px}
+label{display:block;font-size:13px;margin:8px 0 4px;color:#44516a}input,select,textarea{width:100%;padding:11px;border:1px solid #cbd5e1;border-radius:9px;font:inherit;background:white}button{border:0;border-radius:9px;padding:11px 14px;background:#1769aa;color:white;font:inherit;font-weight:650;cursor:pointer;margin:5px 4px 3px 0}button.secondary{background:#e8eef5;color:#24364d}button.danger{background:#b42318}button.good{background:#167447}.hidden{display:none!important}.muted{color:#68758b;font-size:13px}.msg{padding:10px;border-radius:8px;background:#fff4d6;color:#77530b;margin:8px 0;white-space:pre-wrap}.success{background:#e5f7eb;color:#14532d}.error{background:#feecec;color:#991b1b}.topline{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}.pill{display:inline-block;padding:4px 8px;border-radius:99px;background:#e8eef5;font-size:12px}.pending{background:#fff0c2}.approved{background:#d9f7e5}.rejected{background:#ffe0e0}.item{border:1px solid #e1e8f0;border-radius:10px;padding:12px;margin:8px 0}.money-boxes{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:10px}.money-box{border-radius:9px;padding:10px}.money-box.payment{background:#e5f7eb;color:#14532d}.money-box.due{background:#feecec;color:#991b1b}.money-box .box-label{font-size:12px;font-weight:700}.money-box .box-value{font-size:20px;font-weight:750;margin-top:3px}.item strong{display:inline-block;margin-bottom:4px}.small{font-size:12px}footer{text-align:center;color:#7a8799;font-size:12px;padding:20px}
 </style>
 </head>
 <body>
@@ -174,14 +174,34 @@ $('customerForm').addEventListener('submit',async e=>{
  e.target.reset(); alert('গ্রাহক সংরক্ষণ হয়েছে।');
  }catch(err){alert('গ্রাহক সংরক্ষণ হয়নি: '+err.message);}
 });
+function getCustomerMonthTotals(c){
+ const now = new Date();
+ const monthKey = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+ // Only Admin-approved payments for the current calendar month count as paid.
+ const paid = payments
+   .filter(p => p.status === 'approved'
+     && String(p.paymentDate || '').slice(0,7) === monthKey
+     && (p.customerDocId === c.docId || (!p.customerDocId && p.customerId === c.customerId)))
+   .reduce((sum,p) => sum + Number(p.amount || 0), 0);
+ const monthlyBill = Math.max(0, Number(c.monthlyBill || 0));
+ const due = Math.max(0, monthlyBill - paid);
+ return {paid, due};
+}
+function moneyBoxes(c){
+ const t = getCustomerMonthTotals(c);
+ return `<div class="money-boxes">
+   <div class="money-box payment"><div class="box-label">Payment · এই মাসে পরিশোধিত</div><div class="box-value">${money(t.paid)}</div></div>
+   <div class="money-box due"><div class="box-label">Due · এই মাসের বকেয়া</div><div class="box-value">${money(t.due)}</div></div>
+ </div>`;
+}
 function renderCustomers(){
  $('customerCount').textContent=customers.length;
  const q=($('customerSearch')?.value||'').toLowerCase();
  const filtered=customers.filter(c=>[c.customerId,c.name,c.phone].some(x=>String(x||'').toLowerCase().includes(q)));
- $('customerList').innerHTML=filtered.map(c=>`<div class="item"><strong>${escapeHtml(c.customerId)} — ${escapeHtml(c.name)}</strong><br><span class="muted">মোবাইল: ${escapeHtml(c.phone||'—')} · মাসিক বিল: ${money(c.monthlyBill)} · বিলের তারিখ: ${escapeHtml(c.dueDate||'—')}</span></div>`).join('')||'<p class="muted">কোনো গ্রাহক পাওয়া যায়নি।</p>';
+ $('customerList').innerHTML=filtered.map(c=>`<div class="item"><strong>${escapeHtml(c.customerId)} — ${escapeHtml(c.name)}</strong><br><span class="muted">মোবাইল: ${escapeHtml(c.phone||'—')} · মাসিক বিল: ${money(c.monthlyBill)} · বিলের তারিখ: ${escapeHtml(c.dueDate||'—')}</span>${moneyBoxes(c)}</div>`).join('')||'<p class="muted">কোনো গ্রাহক পাওয়া যায়নি।</p>';
  const sq=($('staffSearch')?.value||'').toLowerCase();
  const sf=customers.filter(c=>[c.customerId,c.name,c.phone].some(x=>String(x||'').toLowerCase().includes(sq)));
- $('staffCustomerList').innerHTML=sf.map(c=>`<div class="item"><strong>${escapeHtml(c.customerId)} — ${escapeHtml(c.name)}</strong><br><span class="muted">মোবাইল: ${escapeHtml(c.phone||'—')} · বিল: ${money(c.monthlyBill)} · পেমেন্টের তারিখ: ${escapeHtml(c.dueDate||'—')}</span><div><button onclick="payFor('${escapeHtml(c.docId)}')">পেমেন্ট এন্ট্রি</button></div></div>`).join('')||'<p class="muted">গ্রাহক খুঁজুন।</p>';
+ $('staffCustomerList').innerHTML=sf.map(c=>`<div class="item"><strong>${escapeHtml(c.customerId)} — ${escapeHtml(c.name)}</strong><br><span class="muted">মোবাইল: ${escapeHtml(c.phone||'—')} · মাসিক বিল: ${money(c.monthlyBill)} · বিলের তারিখ: ${escapeHtml(c.dueDate||'—')}</span>${moneyBoxes(c)}<div><button onclick="payFor('${escapeHtml(c.docId)}')">পেমেন্ট এন্ট্রি</button></div></div>`).join('')||'<p class="muted">গ্রাহক খুঁজুন।</p>';
 }
 $('customerSearch').addEventListener('input',renderCustomers); $('staffSearch').addEventListener('input',renderCustomers);
 window.payFor=async id=>{
@@ -194,6 +214,7 @@ window.payFor=async id=>{
  catch(err){alert('পেমেন্ট জমা হয়নি: '+err.message);}
 };
 function renderPayments(){
+ renderCustomers();
  const pending=payments.filter(p=>p.status==='pending'); $('pendingCount').textContent=pending.length;
  if(currentProfile?.role==='admin'){
  $('adminPayments').innerHTML=payments.map(p=>`<div class="item"><strong>${escapeHtml(p.customerId)} — ${escapeHtml(p.customerName)}</strong><br>${money(p.amount)} · তারিখ: ${escapeHtml(p.paymentDate||'—')}<br><span class="muted">Staff: ${escapeHtml(p.staffName||'—')}</span><br>${statusPill(p.status)} ${p.status==='pending'?`<button class="good" onclick="reviewPayment('${p.docId}','approved')">Approve</button><button class="danger" onclick="reviewPayment('${p.docId}','rejected')">Reject</button>`:''}</div>`).join('')||'<p class="muted">এখনও কোনো পেমেন্ট নেই।</p>';

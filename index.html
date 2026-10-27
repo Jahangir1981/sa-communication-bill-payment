@@ -32,6 +32,13 @@ label{display:block;font-size:13px;margin:8px 0 4px;color:#44516a}input,select,t
 <div id="app" class="hidden">
 <div class="card topline"><div><b id="welcome"></b><div id="roleLabel" class="muted"></div></div><button class="secondary" id="logout">লগআউট</button></div>
 <div id="adminPanel" class="hidden">
+<div class="card"><h2>Backup / Restore</h2>
+<p class="muted">গ্রাহক, পেমেন্ট ও কোম্পানির তথ্য JSON ফাইলে Backup নিন। Restore করলে বর্তমান তথ্য মুছবে না; একই ID-এর তথ্য থাকলে সেটি অপরিবর্তিত থাকবে, শুধু অনুপস্থিত রেকর্ড যোগ হবে।</p>
+<button type="button" id="downloadBackup">Backup ডাউনলোড</button>
+<label>Backup JSON ফাইল থেকে Restore</label><input id="restoreFile" type="file" accept=".json,application/json">
+<button type="button" id="restoreBackup" class="good">Restore শুরু করুন</button>
+<div id="backupStatus" class="muted"></div>
+</div>
 <div class="card"><h2>Admin Dashboard</h2><div class="grid"><div class="item"><span class="muted">মোট গ্রাহক</span><h2 id="customerCount">0</h2></div><div class="item"><span class="muted">অনুমোদনের অপেক্ষায়</span><h2 id="pendingCount">0</h2></div></div><button class="danger" type="button" onclick="openDuePage()">বকেয়া তালিকা দেখুন</button></div>
 <div class="card"><h2>কোম্পানির Profile</h2><p class="muted">কোম্পানির নাম, ঠিকানা, ফোন ও ট্যাগলাইন সম্পাদনা করে সংরক্ষণ করুন।</p><form id="companyProfileForm"><div class="grid"><div><label>কোম্পানির নাম</label><input id="companyName" maxlength="100" placeholder="যেমন S A Communication"></div><div><label>যোগাযোগের ফোন</label><input id="companyPhone" type="tel" inputmode="tel" maxlength="20"></div><div><label>ঠিকানা</label><input id="companyAddress" maxlength="200"></div><div><label>ট্যাগলাইন</label><input id="companyTagline" maxlength="200"></div></div><button type="submit">Profile সংরক্ষণ / Edit</button><button class="danger" type="button" id="deleteCompanyProfile">Profile Delete</button></form><div id="companyProfileStatus" class="muted"></div></div>
 <div class="card"><h2>কোম্পানির Logo</h2><div id="companyLogoPreview" class="item muted">এখনও Logo যোগ করা হয়নি।</div><label>নতুন Logo নির্বাচন করুন</label><input id="companyLogoFile" type="file" accept="image/*"><button type="button" id="saveCompanyLogo">Logo আপলোড / Edit</button><button class="danger" type="button" id="deleteCompanyLogo">Logo Delete</button><p class="muted">ছবি ছোট করে সংরক্ষণ করা হবে, যাতে Firestore-এ সংরক্ষণ করা সহজ হয়।</p></div>
@@ -345,6 +352,77 @@ function renderPayments(){
  $('staffPayments').innerHTML=mine.map(p=>`<div class="item"><strong>${escapeHtml(p.customerId)} — ${escapeHtml(p.customerName)}</strong><br>${money(p.amount)} · ${escapeHtml(p.paymentDate||'—')}<br>${statusPill(p.status)}</div>`).join('')||'<p class="muted">এখনও কোনো পেমেন্ট এন্ট্রি করেননি।</p>';
  }
 }
+// Admin-only JSON backup and non-destructive restore.
+$('downloadBackup').addEventListener('click', async () => {
+  if (currentProfile?.role !== 'admin') return alert('Backup শুধু Admin নিতে পারবেন।');
+  const status = $('backupStatus');
+  status.textContent = 'Backup তৈরি হচ্ছে…';
+  try {
+    const collections = ['customers', 'payments', 'company'];
+    const data = { app: 'sa-communication-bill-payment', version: 1, exportedAt: new Date().toISOString(), collections: {} };
+    for (const name of collections) {
+      const snap = await db.collection(name).get();
+      data.collections[name] = snap.docs.map(doc => ({ id: doc.id, data: doc.data() }));
+    }
+    const blob = new Blob([JSON.stringify(data, (key, value) => {
+      if (value && typeof value.toDate === 'function') return value.toDate().toISOString();
+      return value;
+    }, 2)], {type: 'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'sa-communication-backup-' + new Date().toISOString().slice(0,10) + '.json';
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    status.textContent = 'Backup ডাউনলোড শুরু হয়েছে। ফাইলটি নিরাপদ স্থানে রাখুন।';
+  } catch (err) {
+    status.textContent = 'Backup হয়নি: ' + err.message;
+  }
+});
+
+$('restoreBackup').addEventListener('click', async () => {
+  if (currentProfile?.role !== 'admin') return alert('Restore শুধু Admin করতে পারবেন।');
+  const file = $('restoreFile').files[0];
+  if (!file) return alert('আগে Backup JSON ফাইল নির্বাচন করুন।');
+  if (!confirm('Restore করলে বর্তমান তথ্য মুছবে না। একই ID-এর রেকর্ড থাকলে সেটি অপরিবর্তিত থাকবে; শুধু নতুন/অনুপস্থিত রেকর্ড যোগ হবে। চালিয়ে যাবেন?')) return;
+  const status = $('backupStatus');
+  status.textContent = 'Restore চলছে…';
+  try {
+    const backup = JSON.parse(await file.text());
+    if (backup.app !== 'sa-communication-bill-payment' || !backup.collections || typeof backup.collections !== 'object') {
+      throw new Error('এটি S A Communication Bill Payment App-এর সঠিক Backup ফাইল নয়।');
+    }
+    const allowed = ['customers', 'payments', 'company'];
+    let added = 0, skipped = 0;
+    for (const name of allowed) {
+      const records = backup.collections[name];
+      if (!Array.isArray(records)) continue;
+      for (let i = 0; i < records.length; i += 400) {
+        const batch = db.batch();
+        let staged = 0;
+        const part = records.slice(i, i + 400);
+        const refs = part.map(r => {
+          if (!r || typeof r.id !== 'string' || !r.id || !r.data || typeof r.data !== 'object') throw new Error('Backup ফাইলে ভুল রেকর্ড আছে।');
+          return { ref: db.collection(name).doc(r.id), data: r.data };
+        });
+        // Existing document IDs are never overwritten or deleted.
+        for (const item of refs) {
+          const existing = await item.ref.get();
+          if (existing.exists) { skipped++; continue; }
+          batch.set(item.ref, item.data);
+          added++; staged++;
+        }
+        if (staged > 0) await batch.commit();
+      }
+    }
+    $('restoreFile').value = '';
+    status.textContent = `Restore শেষ। নতুন রেকর্ড যোগ হয়েছে: ${added}। আগে থেকেই ছিল, তাই অপরিবর্তিত: ${skipped}।`;
+    alert(status.textContent);
+  } catch (err) {
+    status.textContent = 'Restore হয়নি: ' + err.message;
+    alert(status.textContent);
+  }
+});
+
 window.reviewPayment=async(id,status)=>{
  if(currentProfile?.role!=='admin')return;
  const p=payments.find(x=>x.docId===id); if(!p)return;

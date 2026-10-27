@@ -32,7 +32,7 @@ label{display:block;font-size:13px;margin:8px 0 4px;color:#44516a}input,select,t
 <div id="app" class="hidden">
 <div class="card topline"><div><b id="welcome"></b><div id="roleLabel" class="muted"></div></div><button class="secondary" id="logout">লগআউট</button></div>
 <div id="adminPanel" class="hidden">
-<div class="card"><h2>Admin Dashboard</h2><div class="grid"><div class="item"><span class="muted">মোট গ্রাহক</span><h2 id="customerCount">0</h2></div><div class="item"><span class="muted">অনুমোদনের অপেক্ষায়</span><h2 id="pendingCount">0</h2></div></div></div>
+<div class="card"><h2>Admin Dashboard</h2><div class="grid"><div class="item"><span class="muted">মোট গ্রাহক</span><h2 id="customerCount">0</h2></div><div class="item"><span class="muted">অনুমোদনের অপেক্ষায়</span><h2 id="pendingCount">0</h2></div></div><button class="danger" type="button" onclick="openDuePage()">বকেয়া তালিকা দেখুন</button></div>
 <div class="card"><h2>Staff অ্যাকাউন্ট তৈরি</h2>
 <form id="staffForm"><div class="grid"><div><label>Staff-এর নাম</label><input id="staffName" required></div><div><label>Staff-এর মোবাইল নম্বর</label><input id="staffPhone" type="tel" inputmode="numeric" autocomplete="tel" maxlength="11" placeholder="01XXXXXXXXX" required></div><div><label>অস্থায়ী পাসওয়ার্ড (কমপক্ষে ৬ অক্ষর)</label><input id="staffPassword" type="password" minlength="6" required></div></div><button type="submit">Staff তৈরি করুন</button></form><p class="muted">Staff-কে তার মোবাইল নম্বর ও পাসওয়ার্ড দিন।</p></div>
 <div class="card"><h2>তৈরি করা Staff তালিকা</h2><div id="staffList"><p class="muted">Staff তালিকা লোড হচ্ছে…</p></div></div>
@@ -40,6 +40,10 @@ label{display:block;font-size:13px;margin:8px 0 4px;color:#44516a}input,select,t
 <form id="customerForm"><div class="grid"><div><label>গ্রাহক ID</label><input id="customerId" required placeholder="যেমন SA001"></div><div><label>গ্রাহকের নাম</label><input id="customerName" required></div><div><label>মোবাইল</label><input id="customerPhone" inputmode="tel"></div><div><label>মাসিক বিল (৳)</label><input id="monthlyBill" type="number" min="0" step="0.01" required></div><div><label>পরবর্তী বিল দেওয়ার তারিখ</label><input id="dueDate" type="date" required></div></div><button type="submit">গ্রাহক সংরক্ষণ</button></form></div>
 <div class="card"><h2>পেমেন্ট অনুমোদন</h2><div id="adminPayments"></div></div>
 <div class="card"><h2>গ্রাহক তালিকা</h2><input id="customerSearch" placeholder="ID / নাম / মোবাইল দিয়ে খুঁজুন"><div id="customerList"></div></div>
+</div>
+<div id="duePage" class="hidden">
+  <div class="card topline"><div><h2>বকেয়া তালিকা</h2><p class="muted">যেসব গ্রাহকের বিল দেওয়ার তারিখ আজ বা পার হয়েছে এবং বকেয়া আছে, শুধু তারা এখানে দেখাবে। Admin পেমেন্ট Approve করলে বকেয়া শূন্য হলে তালিকা থেকে স্বয়ংক্রিয়ভাবে চলে যাবে।</p></div><button class="secondary" type="button" onclick="closeDuePage()">ড্যাশবোর্ডে ফিরুন</button></div>
+  <div class="card"><div class="grid"><div><label>গ্রাহক খুঁজুন</label><input id="dueSearch" placeholder="গ্রাহক ID / নাম / মোবাইল"></div></div><div id="dueCustomerList"></div></div>
 </div>
 <div id="staffPanel" class="hidden">
 <div class="card"><h2>গ্রাহক খুঁজুন ও বিল পেমেন্ট এন্ট্রি</h2><input id="staffSearch" placeholder="গ্রাহক ID / নাম / মোবাইল লিখুন"><div id="staffCustomerList"></div></div>
@@ -194,6 +198,31 @@ function moneyBoxes(c){
    <div class="money-box due"><div class="box-label">Due · এই মাসের বকেয়া</div><div class="box-value">${money(t.due)}</div></div>
  </div>`;
 }
+function localDateKey(){
+ const d=new Date();
+ return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+window.openDuePage=()=>{
+ if(currentProfile?.role!=='admin') return alert('বকেয়া তালিকা শুধু Admin দেখতে পারবেন।');
+ show('adminPanel',false); show('staffPanel',false); show('duePage',true); renderDueList();
+};
+window.closeDuePage=()=>{show('duePage',false);show('adminPanel',currentProfile?.role==='admin');show('staffPanel',currentProfile?.role==='staff');};
+function renderDueList(){
+ const el=$('dueCustomerList'); if(!el)return;
+ const today=localDateKey();
+ const q=($('dueSearch')?.value||'').trim().toLowerCase();
+ const dueCustomers=customers.filter(c=>{
+   const dueDate=String(c.dueDate||'');
+   const totals=getCustomerMonthTotals(c);
+   return dueDate && dueDate<=today && totals.due>0 && [c.customerId,c.name,c.phone].some(x=>String(x||'').toLowerCase().includes(q));
+ }).sort((a,b)=>String(a.dueDate||'').localeCompare(String(b.dueDate||'')));
+ el.innerHTML=dueCustomers.map(c=>{
+   const totals=getCustomerMonthTotals(c);
+   return `<div class="item"><strong>${escapeHtml(c.customerId)} — ${escapeHtml(c.name)}</strong><br><span class="muted">মোবাইল: ${escapeHtml(c.phone||'—')} · বিল দেওয়ার তারিখ: ${escapeHtml(c.dueDate||'—')} · মাসিক বিল: ${money(c.monthlyBill)}</span>${moneyBoxes(c)}<p class="muted">বকেয়া: ${money(totals.due)}</p></div>`;
+ }).join('') || '<p class="muted">এখন কোনো বকেয়া গ্রাহক নেই। Admin পেমেন্ট Approve করলে হিসাব আপডেট হবে।</p>';
+}
+$('dueSearch').addEventListener('input',renderDueList);
+
 function renderCustomers(){
  $('customerCount').textContent=customers.length;
  const q=($('customerSearch')?.value||'').toLowerCase();
@@ -202,6 +231,7 @@ function renderCustomers(){
  const sq=($('staffSearch')?.value||'').toLowerCase();
  const sf=customers.filter(c=>[c.customerId,c.name,c.phone].some(x=>String(x||'').toLowerCase().includes(sq)));
  $('staffCustomerList').innerHTML=sf.map(c=>`<div class="item"><strong>${escapeHtml(c.customerId)} — ${escapeHtml(c.name)}</strong><br><span class="muted">মোবাইল: ${escapeHtml(c.phone||'—')} · মাসিক বিল: ${money(c.monthlyBill)} · বিলের তারিখ: ${escapeHtml(c.dueDate||'—')}</span>${moneyBoxes(c)}<div><button onclick="payFor('${escapeHtml(c.docId)}')">পেমেন্ট এন্ট্রি</button></div></div>`).join('')||'<p class="muted">গ্রাহক খুঁজুন।</p>';
+ if(!$('duePage').classList.contains('hidden')) renderDueList();
 }
 window.editCustomer = async id => {
  if (currentProfile?.role !== 'admin') return alert('শুধু Admin গ্রাহক সম্পাদনা করতে পারবেন।');

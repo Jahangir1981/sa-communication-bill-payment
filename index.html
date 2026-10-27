@@ -87,16 +87,16 @@ $('loginForm').addEventListener('submit', async e => {
   const loginId = $('email').value.trim();
   const password = $('password').value;
   let loginEmail = loginId;
-  const phone = loginId.replace(/[\\s-]/g, '');
+  const phone = loginId.replace(/[\s-]/g, '');
 
   // Staff-এর মোবাইল নম্বরকে Staff তৈরির সময় ব্যবহৃত internal email-এ রূপান্তর
-  if (/^01[3-9]\\d{8}$/.test(phone)) {
+  if (/^01[3-9]\d{8}$/.test(phone)) {
     loginEmail = phone + '@staff.sa-communication.local';
   }
 
   try {
     await auth.signInWithEmailAndPassword(loginEmail, password);
-    message('লগইন হচ্ছে…', 'success');
+    message('লগইন সফল; অ্যাকাউন্ট যাচাই হচ্ছে…', 'success');
   } catch (err) {
     message('লগইন হয়নি: ' + err.message, 'error');
   }
@@ -105,15 +105,19 @@ $('logout').onclick=()=>auth.signOut();
 if(auth) auth.onAuthStateChanged(async user=>{
  clearSubs(); currentUser=user; currentProfile=null;
  if(!user){show('loginCard');show('app',false);return;}
+ message('লগইন সফল; Admin/Staff প্রোফাইল যাচাই হচ্ছে…', 'success');
  try{
- const snap=await db.collection('users').doc(user.uid).get();
+ const snap=await Promise.race([
+   db.collection('users').doc(user.uid).get(),
+   new Promise((_, reject)=>setTimeout(()=>reject(new Error('১৫ সেকেন্ডেও Firestore থেকে উত্তর আসেনি। ইন্টারনেট ও Firestore Rules পরীক্ষা করুন।')),15000))
+ ]);
  if(!snap.exists) { await auth.signOut(); message('এই অ্যাকাউন্টের role পাওয়া যায়নি। Admin-কে users collection-এ এই UID-এর role admin/staff সেট করতে হবে।','error');return; }
  currentProfile=snap.data();
  if(!['admin','staff'].includes(currentProfile.role)){await auth.signOut();message('এই অ্যাকাউন্টের অনুমতি নেই।','error');return;}
  show('loginCard',false);show('app');show('adminPanel',currentProfile.role==='admin');show('staffPanel',currentProfile.role==='staff');
  $('welcome').textContent=currentProfile.name||user.email; $('roleLabel').textContent=currentProfile.role==='admin'?'Admin Panel':'Staff Panel';
  startLiveData();
- }catch(err){await auth.signOut();show('loginCard');message('তথ্য পড়া যায়নি: '+err.message,'error');}
+ }catch(err){try{await auth.signOut();}catch(_){} show('loginCard');show('app',false);message('লগইন হয়েছে, কিন্তু users প্রোফাইল পড়া যায়নি: '+err.message,'error');}
 });
 function startLiveData(){
  unsubs.push(db.collection('customers').orderBy('customerId').onSnapshot(s=>{customers=s.docs.map(d=>({docId:d.id,...d.data()}));renderCustomers();},e=>message('গ্রাহকের তথ্য: '+e.message,'error')));
@@ -124,10 +128,10 @@ $('staffForm').addEventListener('submit', async e => {
   if (currentProfile?.role !== 'admin') return;
 
   const name = $('staffName').value.trim();
-  const phone = $('staffPhone').value.trim().replace(/[\\s-]/g, '');
+  const phone = $('staffPhone').value.trim().replace(/[\s-]/g, '');
   const password = $('staffPassword').value;
 
-  if (!/^01[3-9]\\d{8}$/.test(phone)) {
+  if (!/^01[3-9]\d{8}$/.test(phone)) {
     return alert('সঠিক ১১ সংখ্যার বাংলাদেশি মোবাইল নম্বর দিন।');
   }
   if (password.length < 6) {

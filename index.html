@@ -198,11 +198,36 @@ function renderCustomers(){
  $('customerCount').textContent=customers.length;
  const q=($('customerSearch')?.value||'').toLowerCase();
  const filtered=customers.filter(c=>[c.customerId,c.name,c.phone].some(x=>String(x||'').toLowerCase().includes(q)));
- $('customerList').innerHTML=filtered.map(c=>`<div class="item"><strong>${escapeHtml(c.customerId)} — ${escapeHtml(c.name)}</strong><br><span class="muted">মোবাইল: ${escapeHtml(c.phone||'—')} · মাসিক বিল: ${money(c.monthlyBill)} · বিলের তারিখ: ${escapeHtml(c.dueDate||'—')}</span>${moneyBoxes(c)}</div>`).join('')||'<p class="muted">কোনো গ্রাহক পাওয়া যায়নি।</p>';
+ $('customerList').innerHTML=filtered.map(c=>`<div class="item"><strong>${escapeHtml(c.customerId)} — ${escapeHtml(c.name)}</strong><br><span class="muted">মোবাইল: ${escapeHtml(c.phone||'—')} · মাসিক বিল: ${money(c.monthlyBill)} · বিলের তারিখ: ${escapeHtml(c.dueDate||'—')}</span>${moneyBoxes(c)}${currentProfile?.role==='admin'?`<div><button class="secondary" onclick="editCustomer('${escapeHtml(c.docId)}')">Edit / সম্পাদনা</button><button class="danger" onclick="deleteCustomer('${escapeHtml(c.docId)}')">Delete / মুছুন</button></div>`:''}</div>`).join('')||'<p class="muted">কোনো গ্রাহক পাওয়া যায়নি।</p>';
  const sq=($('staffSearch')?.value||'').toLowerCase();
  const sf=customers.filter(c=>[c.customerId,c.name,c.phone].some(x=>String(x||'').toLowerCase().includes(sq)));
  $('staffCustomerList').innerHTML=sf.map(c=>`<div class="item"><strong>${escapeHtml(c.customerId)} — ${escapeHtml(c.name)}</strong><br><span class="muted">মোবাইল: ${escapeHtml(c.phone||'—')} · মাসিক বিল: ${money(c.monthlyBill)} · বিলের তারিখ: ${escapeHtml(c.dueDate||'—')}</span>${moneyBoxes(c)}<div><button onclick="payFor('${escapeHtml(c.docId)}')">পেমেন্ট এন্ট্রি</button></div></div>`).join('')||'<p class="muted">গ্রাহক খুঁজুন।</p>';
 }
+window.editCustomer = async id => {
+ if (currentProfile?.role !== 'admin') return alert('শুধু Admin গ্রাহক সম্পাদনা করতে পারবেন।');
+ const c = customers.find(x => x.docId === id); if (!c) return alert('গ্রাহক পাওয়া যায়নি।');
+ const name = prompt('গ্রাহকের নাম:', c.name || ''); if (name === null) return;
+ const phone = prompt('মোবাইল নম্বর:', c.phone || ''); if (phone === null) return;
+ const monthlyText = prompt('মাসিক বিল (টাকা):', String(c.monthlyBill ?? 0)); if (monthlyText === null) return;
+ const monthlyBill = Number(monthlyText);
+ if (!name.trim()) return alert('গ্রাহকের নাম খালি রাখা যাবে না।');
+ if (!Number.isFinite(monthlyBill) || monthlyBill < 0) return alert('সঠিক মাসিক বিল লিখুন।');
+ const dueDate = prompt('পরবর্তী বিল দেওয়ার তারিখ (YYYY-MM-DD):', c.dueDate || ''); if (dueDate === null) return;
+ if (dueDate && !/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) return alert('তারিখ YYYY-MM-DD ফরম্যাটে লিখুন।');
+ try {
+   await db.collection('customers').doc(id).update({name:name.trim(), phone:phone.trim(), monthlyBill, dueDate, updatedAt:firebase.firestore.FieldValue.serverTimestamp(), updatedBy:currentUser.uid});
+   alert('গ্রাহকের তথ্য আপডেট হয়েছে।');
+ } catch (err) { alert('গ্রাহক সম্পাদনা হয়নি: ' + err.message); }
+};
+window.deleteCustomer = async id => {
+ if (currentProfile?.role !== 'admin') return alert('শুধু Admin গ্রাহক মুছতে পারবেন।');
+ const c = customers.find(x => x.docId === id); if (!c) return alert('গ্রাহক পাওয়া যায়নি।');
+ if (!confirm(`আপনি কি ${c.customerId} — ${c.name} গ্রাহককে মুছতে চান?\nএই কাজটি ফিরিয়ে আনা যাবে না। পুরোনো পেমেন্ট রেকর্ড আলাদা থাকবে।`)) return;
+ try {
+   await db.collection('customers').doc(id).delete();
+   alert('গ্রাহক মুছে ফেলা হয়েছে। পুরোনো পেমেন্ট রেকর্ড রাখা হয়েছে।');
+ } catch (err) { alert('গ্রাহক মুছতে পারেনি: ' + err.message); }
+};
 $('customerSearch').addEventListener('input',renderCustomers); $('staffSearch').addEventListener('input',renderCustomers);
 window.payFor=async id=>{
  if(currentProfile?.role!=='staff')return;

@@ -23,23 +23,18 @@ label{display:block;font-size:13px;margin:8px 0 4px;color:#44516a}input,select,t
 <h2>লগইন</h2>
 <div id="notice" class="msg hidden"></div>
 <form id="loginForm">
-<label>ইমেইল অথবা Staff-এর মোবাইল নম্বর</label>
-<input id="email" type="text" required autocomplete="username">
+<label>Admin-এর ইমেইল অথবা Staff-এর মোবাইল নম্বর</label><input id="email" type="text" required autocomplete="username">
 <label>পাসওয়ার্ড</label><input id="password" type="password" required autocomplete="current-password">
 <button type="submit">লগইন করুন</button>
 </form>
-<p class="muted">Admin বা Staff-এর Firebase Authentication অ্যাকাউন্ট দিয়ে লগইন করুন।</p>
+<p class="muted">Admin আগের ইমেইল দিয়ে এবং Staff নিবন্ধিত মোবাইল নম্বর দিয়ে লগইন করবেন।</p>
 </div>
 <div id="app" class="hidden">
 <div class="card topline"><div><b id="welcome"></b><div id="roleLabel" class="muted"></div></div><button class="secondary" id="logout">লগআউট</button></div>
 <div id="adminPanel" class="hidden">
 <div class="card"><h2>Admin Dashboard</h2><div class="grid"><div class="item"><span class="muted">মোট গ্রাহক</span><h2 id="customerCount">0</h2></div><div class="item"><span class="muted">অনুমোদনের অপেক্ষায়</span><h2 id="pendingCount">0</h2></div></div></div>
 <div class="card"><h2>Staff অ্যাকাউন্ট তৈরি</h2>
-<form id="staffForm"><div class="grid"><div><label>Staff-এর নাম</label><input id="staffName" required></div><div>
-  <label>Staff-এর মোবাইল নম্বর</label>
-  <input id="staffPhone" type="tel" inputmode="tel"
-         placeholder="01XXXXXXXXX" required>
-</div><div><label>অস্থায়ী পাসওয়ার্ড (কমপক্ষে ৬ অক্ষর)</label><input id="staffPassword" type="password" minlength="6" required></div></div><button type="submit">Staff তৈরি করুন</button></form><p class="muted">Staff-কে তার মোবাইল নম্বর ও পাসওয়ার্ড দিন।</p></div>
+<form id="staffForm"><div class="grid"><div><label>Staff-এর নাম</label><input id="staffName" required></div><div><label>Staff-এর মোবাইল নম্বর</label><input id="staffPhone" type="tel" inputmode="tel" placeholder="01XXXXXXXXX" required></div><div><label>অস্থায়ী পাসওয়ার্ড (কমপক্ষে ৬ অক্ষর)</label><input id="staffPassword" type="password" minlength="6" required></div></div><button type="submit">Staff তৈরি করুন</button></form><p class="muted">Staff-কে তার মোবাইল নম্বর ও পাসওয়ার্ড দিন।</p></div>
 <div class="card"><h2>নতুন গ্রাহক তৈরি</h2>
 <form id="customerForm"><div class="grid"><div><label>গ্রাহক ID</label><input id="customerId" required placeholder="যেমন SA001"></div><div><label>গ্রাহকের নাম</label><input id="customerName" required></div><div><label>মোবাইল</label><input id="customerPhone" inputmode="tel"></div><div><label>মাসিক বিল (৳)</label><input id="monthlyBill" type="number" min="0" step="0.01" required></div><div><label>পরবর্তী বিল দেওয়ার তারিখ</label><input id="dueDate" type="date" required></div></div><button type="submit">গ্রাহক সংরক্ষণ</button></form></div>
 <div class="card"><h2>পেমেন্ট অনুমোদন</h2><div id="adminPayments"></div></div>
@@ -63,33 +58,39 @@ const firebaseConfig = {
   projectId: "sa-communication-bill-payment",
   storageBucket: "sa-communication-bill-payment.firebasestorage.app",
   messagingSenderId: "40498362710",
-  appId: "1:40498362710:web:6f09027c8504eb13bdbef7",
+  appId: "1:40498362710:web:6f09027c8504eb13bdbef7"
 };
 const configured = !Object.values(firebaseConfig).some(v => String(v).includes("PASTE_"));
-  if (!firebase.apps.length) {
-  firebase.initializeApp(firebaseConfig);
-}
-let auth = firebase.auth();
-let db = firebase.firestore();
-let secondaryApp = null;
 const $ = id => document.getElementById(id);
 const show = (id, yes=true) => $(id).classList.toggle('hidden', !yes);
 function message(s, kind=''){ $('notice').textContent=s; $('notice').className='msg '+kind; show('notice'); }
+if (!configured) {
+  message('Firebase config বসানো হয়নি। firebaseConfig অংশটি যাচাই করুন।', 'error');
+} else {
+  // এই একই script-এর top-level-এ Firebase একবার চালু করে auth/db তৈরি করা হয়।
+  if (!firebase.apps.length) {
+    firebase.initializeApp(firebaseConfig);
+  }
+}
+let auth = configured ? firebase.auth() : null;
+let db = configured ? firebase.firestore() : null;
+let secondaryApp = null, currentUser = null, currentProfile = null;
+let customers = [], payments = [], unsubs = [];
+function escapeHtml(s=''){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function money(n){return '৳'+Number(n||0).toLocaleString('en-BD',{maximumFractionDigits:2});}
+function statusPill(s){const map={pending:'অপেক্ষমাণ',approved:'অনুমোদিত',rejected:'বাতিল'};return `<span class="pill ${s}">${map[s]||s}</span>`;}
+function clearSubs(){unsubs.forEach(f=>f());unsubs=[];}
 $('loginForm').addEventListener('submit', async e => {
   e.preventDefault();
-
-  if (!configured) {
-    return message('Firebase config বসান, তারপর লগইন করুন।', 'error');
-  }
+  if (!configured || !auth) return message('Firebase সংযোগ চালু হয়নি। firebaseConfig যাচাই করুন।', 'error');
 
   const loginId = $('email').value.trim();
   const password = $('password').value;
   let loginEmail = loginId;
+  const phone = loginId.replace(/[\\s-]/g, '');
 
-  // Staff-এর বাংলাদেশি মোবাইল নম্বরকে অভ্যন্তরীণ লগইন ইমেইলে রূপান্তর
-  const phone = loginId.replace(/[\s-]/g, '');
-
-  if (/^01[3-9]\d{8}$/.test(phone)) {
+  // Staff-এর মোবাইল নম্বরকে Staff তৈরির সময় ব্যবহৃত internal email-এ রূপান্তর
+  if (/^01[3-9]\\d{8}$/.test(phone)) {
     loginEmail = phone + '@staff.sa-communication.local';
   }
 
@@ -100,7 +101,6 @@ $('loginForm').addEventListener('submit', async e => {
     message('লগইন হয়নি: ' + err.message, 'error');
   }
 });
-
 $('logout').onclick=()=>auth.signOut();
 if(auth) auth.onAuthStateChanged(async user=>{
  clearSubs(); currentUser=user; currentProfile=null;
@@ -119,40 +119,34 @@ function startLiveData(){
  unsubs.push(db.collection('customers').orderBy('customerId').onSnapshot(s=>{customers=s.docs.map(d=>({docId:d.id,...d.data()}));renderCustomers();},e=>message('গ্রাহকের তথ্য: '+e.message,'error')));
  unsubs.push(db.collection('payments').orderBy('createdAt','desc').onSnapshot(s=>{payments=s.docs.map(d=>({docId:d.id,...d.data()}));renderPayments();},e=>message('পেমেন্টের তথ্য: '+e.message,'error')));
 }
-
 $('staffForm').addEventListener('submit', async e => {
   e.preventDefault();
   if (currentProfile?.role !== 'admin') return;
 
   const name = $('staffName').value.trim();
-  const phone = $('staffPhone').value.trim().replace(/[\s-]/g, '');
+  const phone = $('staffPhone').value.trim().replace(/[\\s-]/g, '');
   const password = $('staffPassword').value;
 
-  // বাংলাদেশের ১১ সংখ্যার মোবাইল নম্বর যাচাই
-  if (!/^01[3-9]\d{8}$/.test(phone)) {
+  if (!/^01[3-9]\\d{8}$/.test(phone)) {
     return alert('সঠিক ১১ সংখ্যার বাংলাদেশি মোবাইল নম্বর দিন।');
   }
+  if (password.length < 6) {
+    return alert('পাসওয়ার্ড কমপক্ষে ৬ অক্ষরের হতে হবে।');
+  }
 
-  // ফোন নম্বরকে Firebase-এর অভ্যন্তরীণ লগইন ID হিসেবে ব্যবহার
   const email = phone + '@staff.sa-communication.local';
-
   try {
     if (!secondaryApp) {
-      secondaryApp = firebase.initializeApp(firebaseConfig, 'staffCreator');
+      secondaryApp = firebase.apps.find(app => app.name === 'staffCreator')
+        || firebase.initializeApp(firebaseConfig, 'staffCreator');
     }
-
     const secAuth = secondaryApp.auth();
     const cred = await secAuth.createUserWithEmailAndPassword(email, password);
-
     await db.collection('users').doc(cred.user.uid).set({
-      name,
-      phone,
-      email,
-      role: 'staff',
+      name, phone, email, role: 'staff',
       createdAt: firebase.firestore.FieldValue.serverTimestamp(),
       createdBy: currentUser.uid
     });
-
     await secAuth.signOut();
     e.target.reset();
     alert('Staff অ্যাকাউন্ট তৈরি হয়েছে। লগইন আইডি: ' + phone);
@@ -160,7 +154,6 @@ $('staffForm').addEventListener('submit', async e => {
     alert('Staff তৈরি হয়নি: ' + err.message);
   }
 });
-
 $('customerForm').addEventListener('submit',async e=>{
  e.preventDefault(); if(currentProfile?.role!=='admin')return;
  const customerId=$('customerId').value.trim().toUpperCase();

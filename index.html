@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="bn">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Simple Customer Bill Payment</title>
+<style>
+:root{font-family:system-ui,-apple-system,"Noto Sans Bengali",sans-serif;color:#172033;background:#f3f6fb}
+*{box-sizing:border-box}body{margin:0}header{background:#123b68;color:#fff;padding:16px}header h1{font-size:20px;margin:0 0 4px}header p{margin:0;font-size:13px;opacity:.9}
+main{max-width:900px;margin:auto;padding:14px}.card{background:#fff;border:1px solid #e1e8f0;border-radius:14px;padding:16px;margin:12px 0;box-shadow:0 2px 8px #1720330a}
+h2{font-size:18px;margin:0 0 12px}h3{font-size:16px;margin:12px 0 8px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}
+label{display:block;font-size:13px;margin:8px 0 4px;color:#44516a}input,select,textarea{width:100%;padding:11px;border:1px solid #cbd5e1;border-radius:9px;font:inherit;background:white}button{border:0;border-radius:9px;padding:11px 14px;background:#1769aa;color:white;font:inherit;font-weight:650;cursor:pointer;margin:5px 4px 3px 0}button.secondary{background:#e8eef5;color:#24364d}button.danger{background:#b42318}button.good{background:#167447}.hidden{display:none!important}.muted{color:#68758b;font-size:13px}.msg{padding:10px;border-radius:8px;background:#fff4d6;color:#77530b;margin:8px 0;white-space:pre-wrap}.success{background:#e5f7eb;color:#14532d}.error{background:#feecec;color:#991b1b}.topline{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}.pill{display:inline-block;padding:4px 8px;border-radius:99px;background:#e8eef5;font-size:12px}.pending{background:#fff0c2}.approved{background:#d9f7e5}.rejected{background:#ffe0e0}.item{border:1px solid #e1e8f0;border-radius:10px;padding:12px;margin:8px 0}.item strong{display:inline-block;margin-bottom:4px}.small{font-size:12px}footer{text-align:center;color:#7a8799;font-size:12px;padding:20px}
+</style>
+</head>
+<body>
+<header><h1>Customer Bill Payment</h1><p>সহজ অনলাইন বিল পেমেন্ট হিসাব · Admin ও Staff Panel</p></header>
+<main>
+<div id="setup" class="card">
+<h2>প্রথমবার সেটআপ</h2>
+<p>এই ফাইলটি চালাতে Firebase Web App config বসাতে হবে। <b>firebaseConfig</b> অংশে আপনার আলাদা Firebase প্রজেক্টের তথ্য বসিয়ে ফাইলটি আবার GitHub Pages-এ আপলোড করুন।</p>
+<p class="muted">আপনার আগের deposit-management-account প্রজেক্টের পরিবর্তে আলাদা ISP Billing প্রজেক্ট ব্যবহার করুন।</p>
+</div>
+<div id="loginCard" class="card">
+<h2>লগইন</h2>
+<div id="notice" class="msg hidden"></div>
+<form id="loginForm">
+<label>ইমেইল</label><input id="email" type="email" required autocomplete="username">
+<label>পাসওয়ার্ড</label><input id="password" type="password" required autocomplete="current-password">
+<button type="submit">লগইন করুন</button>
+</form>
+<p class="muted">Admin বা Staff-এর Firebase Authentication অ্যাকাউন্ট দিয়ে লগইন করুন।</p>
+</div>
+<div id="app" class="hidden">
+<div class="card topline"><div><b id="welcome"></b><div id="roleLabel" class="muted"></div></div><button class="secondary" id="logout">লগআউট</button></div>
+<div id="adminPanel" class="hidden">
+<div class="card"><h2>Admin Dashboard</h2><div class="grid"><div class="item"><span class="muted">মোট গ্রাহক</span><h2 id="customerCount">0</h2></div><div class="item"><span class="muted">অনুমোদনের অপেক্ষায়</span><h2 id="pendingCount">0</h2></div></div></div>
+<div class="card"><h2>Staff অ্যাকাউন্ট তৈরি</h2>
+<form id="staffForm"><div class="grid"><div><label>Staff-এর নাম</label><input id="staffName" required></div><div><label>ইমেইল</label><input id="staffEmail" type="email" required></div><div><label>অস্থায়ী পাসওয়ার্ড (কমপক্ষে ৬ অক্ষর)</label><input id="staffPassword" type="password" minlength="6" required></div></div><button type="submit">Staff তৈরি করুন</button></form><p class="muted">Staff তৈরি হলে তাকে ইমেইল ও পাসওয়ার্ড নিরাপদে দিন।</p></div>
+<div class="card"><h2>নতুন গ্রাহক তৈরি</h2>
+<form id="customerForm"><div class="grid"><div><label>গ্রাহক ID</label><input id="customerId" required placeholder="যেমন SA001"></div><div><label>গ্রাহকের নাম</label><input id="customerName" required></div><div><label>মোবাইল</label><input id="customerPhone" inputmode="tel"></div><div><label>মাসিক বিল (৳)</label><input id="monthlyBill" type="number" min="0" step="0.01" required></div><div><label>পরবর্তী বিল দেওয়ার তারিখ</label><input id="dueDate" type="date" required></div></div><button type="submit">গ্রাহক সংরক্ষণ</button></form></div>
+<div class="card"><h2>পেমেন্ট অনুমোদন</h2><div id="adminPayments"></div></div>
+<div class="card"><h2>গ্রাহক তালিকা</h2><input id="customerSearch" placeholder="ID / নাম / মোবাইল দিয়ে খুঁজুন"><div id="customerList"></div></div>
+</div>
+<div id="staffPanel" class="hidden">
+<div class="card"><h2>গ্রাহক খুঁজুন ও বিল পেমেন্ট এন্ট্রি</h2><input id="staffSearch" placeholder="গ্রাহক ID / নাম / মোবাইল লিখুন"><div id="staffCustomerList"></div></div>
+<div class="card"><h2>আমার পেমেন্ট এন্ট্রি</h2><div id="staffPayments"></div></div>
+</div>
+</div>
+<footer>Simple Customer Bill Payment App · Firebase</footer>
+</main>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script>
+// Firebase Console > Project settings > Your apps > Web app: replace values below.
+const firebaseConfig = {
+  apiKey: "PASTE_API_KEY_HERE",
+  authDomain: "PASTE_PROJECT_ID_HERE.firebaseapp.com",
+  projectId: "PASTE_PROJECT_ID_HERE",
+  storageBucket: "PASTE_PROJECT_ID_HERE.appspot.com",
+  messagingSenderId: "PASTE_MESSAGING_SENDER_ID_HERE",
+  appId: "PASTE_APP_ID_HERE"
+};
+const configured = !Object.values(firebaseConfig).some(v => String(v).includes("PASTE_"));
+const $ = id => document.getElementById(id);
+const show = (id, yes=true) => $(id).classList.toggle('hidden', !yes);
+function message(s, kind=''){ $('notice').textContent=s; $('notice').className='msg '+kind; show('notice'); }
+if (!configured) { message('Firebase config বসানো হয়নি। প্রথমে firebaseConfig অংশে আপনার নতুন Firebase Web App-এর config বসান।','error'); }
+else { firebase.initializeApp(firebaseConfig); }
+let auth=null, db=null, secondaryApp=null, currentUser=null, currentProfile=null, customers=[], payments=[], unsubs=[];
+if (configured) { auth=firebase.auth(); db=firebase.firestore(); }
+function escapeHtml(s=''){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function money(n){return '৳'+Number(n||0).toLocaleString('en-BD',{maximumFractionDigits:2});}
+function statusPill(s){const map={pending:'অপেক্ষমাণ',approved:'অনুমোদিত',rejected:'বাতিল'};return `<span class="pill ${s}">${map[s]||s}</span>`;}
+function clearSubs(){unsubs.forEach(f=>f());unsubs=[];}
+$('loginForm').addEventListener('submit',async e=>{e.preventDefault();if(!configured)return message('Firebase config বসান, তারপর লগইন করুন।','error');try{await auth.signInWithEmailAndPassword($('email').value.trim(),$('password').value);message('লগইন হচ্ছে…','success');}catch(err){message('লগইন হয়নি: '+err.message,'error');}});
+$('logout').onclick=()=>auth.signOut();
+if(auth) auth.onAuthStateChanged(async user=>{
+ clearSubs(); currentUser=user; currentProfile=null;
+ if(!user){show('loginCard');show('app',false);return;}
+ try{
+ const snap=await db.collection('users').doc(user.uid).get();
+ if(!snap.exists) { await auth.signOut(); message('এই অ্যাকাউন্টের role পাওয়া যায়নি। Admin-কে users collection-এ এই UID-এর role admin/staff সেট করতে হবে।','error');return; }
+ currentProfile=snap.data();
+ if(!['admin','staff'].includes(currentProfile.role)){await auth.signOut();message('এই অ্যাকাউন্টের অনুমতি নেই।','error');return;}
+ show('loginCard',false);show('app');show('adminPanel',currentProfile.role==='admin');show('staffPanel',currentProfile.role==='staff');
+ $('welcome').textContent=currentProfile.name||user.email; $('roleLabel').textContent=currentProfile.role==='admin'?'Admin Panel':'Staff Panel';
+ startLiveData();
+ }catch(err){await auth.signOut();show('loginCard');message('তথ্য পড়া যায়নি: '+err.message,'error');}
+});
+function startLiveData(){
+ unsubs.push(db.collection('customers').orderBy('customerId').onSnapshot(s=>{customers=s.docs.map(d=>({docId:d.id,...d.data()}));renderCustomers();},e=>message('গ্রাহকের তথ্য: '+e.message,'error')));
+ unsubs.push(db.collection('payments').orderBy('createdAt','desc').onSnapshot(s=>{payments=s.docs.map(d=>({docId:d.id,...d.data()}));renderPayments();},e=>message('পেমেন্টের তথ্য: '+e.message,'error')));
+}
+$('staffForm').addEventListener('submit',async e=>{
+ e.preventDefault(); if(currentProfile?.role!=='admin')return;
+ const name=$('staffName').value.trim(), email=$('staffEmail').value.trim(), password=$('staffPassword').value;
+ try{
+ if(!secondaryApp){secondaryApp=firebase.initializeApp(firebaseConfig,'staffCreator');}
+ const secAuth=secondaryApp.auth();
+ const cred=await secAuth.createUserWithEmailAndPassword(email,password);
+ await db.collection('users').doc(cred.user.uid).set({name,email,role:'staff',createdAt:firebase.firestore.FieldValue.serverTimestamp(),createdBy:currentUser.uid});
+ await secAuth.signOut(); e.target.reset(); alert('Staff অ্যাকাউন্ট তৈরি হয়েছে।');
+ }catch(err){alert('Staff তৈরি হয়নি: '+err.message);}
+});
+$('customerForm').addEventListener('submit',async e=>{
+ e.preventDefault(); if(currentProfile?.role!=='admin')return;
+ const customerId=$('customerId').value.trim().toUpperCase();
+ try{
+ const exists=await db.collection('customers').doc(customerId).get(); if(exists.exists)return alert('এই Customer ID আগে থেকেই আছে।');
+ await db.collection('customers').doc(customerId).set({customerId,name:$('customerName').value.trim(),phone:$('customerPhone').value.trim(),monthlyBill:Number($('monthlyBill').value),dueDate:$('dueDate').value,createdAt:firebase.firestore.FieldValue.serverTimestamp(),createdBy:currentUser.uid});
+ e.target.reset(); alert('গ্রাহক সংরক্ষণ হয়েছে।');
+ }catch(err){alert('গ্রাহক সংরক্ষণ হয়নি: '+err.message);}
+});
+function renderCustomers(){
+ $('customerCount').textContent=customers.length;
+ const q=($('customerSearch')?.value||'').toLowerCase();
+ const filtered=customers.filter(c=>[c.customerId,c.name,c.phone].some(x=>String(x||'').toLowerCase().includes(q)));
+ $('customerList').innerHTML=filtered.map(c=>`<div class="item"><strong>${escapeHtml(c.customerId)} — ${escapeHtml(c.name)}</strong><br><span class="muted">মোবাইল: ${escapeHtml(c.phone||'—')} · মাসিক বিল: ${money(c.monthlyBill)} · বিলের তারিখ: ${escapeHtml(c.dueDate||'—')}</span></div>`).join('')||'<p class="muted">কোনো গ্রাহক পাওয়া যায়নি।</p>';
+ const sq=($('staffSearch')?.value||'').toLowerCase();
+ const sf=customers.filter(c=>[c.customerId,c.name,c.phone].some(x=>String(x||'').toLowerCase().includes(sq)));
+ $('staffCustomerList').innerHTML=sf.map(c=>`<div class="item"><strong>${escapeHtml(c.customerId)} — ${escapeHtml(c.name)}</strong><br><span class="muted">মোবাইল: ${escapeHtml(c.phone||'—')} · বিল: ${money(c.monthlyBill)} · পেমেন্টের তারিখ: ${escapeHtml(c.dueDate||'—')}</span><div><button onclick="payFor('${escapeHtml(c.docId)}')">পেমেন্ট এন্ট্রি</button></div></div>`).join('')||'<p class="muted">গ্রাহক খুঁজুন।</p>';
+}
+$('customerSearch').addEventListener('input',renderCustomers); $('staffSearch').addEventListener('input',renderCustomers);
+window.payFor=async id=>{
+ if(currentProfile?.role!=='staff')return;
+ const c=customers.find(x=>x.docId===id); if(!c)return;
+ const amount=prompt(`Customer: ${c.customerId} — ${c.name}\nমাসিক বিল: ${money(c.monthlyBill)}\nকত টাকা পেয়েছেন?`,String(c.monthlyBill)); if(amount===null)return;
+ const n=Number(amount); if(!Number.isFinite(n)||n<=0)return alert('সঠিক টাকা লিখুন।');
+ const date=prompt('পেমেন্টের তারিখ (YYYY-MM-DD):',new Date().toISOString().slice(0,10)); if(!date)return;
+ try{await db.collection('payments').add({customerDocId:c.docId,customerId:c.customerId,customerName:c.name,amount:n,paymentDate:date,status:'pending',staffUid:currentUser.uid,staffName:currentProfile.name||currentUser.email,createdAt:firebase.firestore.FieldValue.serverTimestamp()});alert('পেমেন্ট জমা হয়েছে। Admin অনুমোদনের অপেক্ষায় আছে।');}
+ catch(err){alert('পেমেন্ট জমা হয়নি: '+err.message);}
+};
+function renderPayments(){
+ const pending=payments.filter(p=>p.status==='pending'); $('pendingCount').textContent=pending.length;
+ if(currentProfile?.role==='admin'){
+ $('adminPayments').innerHTML=payments.map(p=>`<div class="item"><strong>${escapeHtml(p.customerId)} — ${escapeHtml(p.customerName)}</strong><br>${money(p.amount)} · তারিখ: ${escapeHtml(p.paymentDate||'—')}<br><span class="muted">Staff: ${escapeHtml(p.staffName||'—')}</span><br>${statusPill(p.status)} ${p.status==='pending'?`<button class="good" onclick="reviewPayment('${p.docId}','approved')">Approve</button><button class="danger" onclick="reviewPayment('${p.docId}','rejected')">Reject</button>`:''}</div>`).join('')||'<p class="muted">এখনও কোনো পেমেন্ট নেই।</p>';
+ } else if(currentProfile?.role==='staff'){
+ const mine=payments.filter(p=>p.staffUid===currentUser.uid);
+ $('staffPayments').innerHTML=mine.map(p=>`<div class="item"><strong>${escapeHtml(p.customerId)} — ${escapeHtml(p.customerName)}</strong><br>${money(p.amount)} · ${escapeHtml(p.paymentDate||'—')}<br>${statusPill(p.status)}</div>`).join('')||'<p class="muted">এখনও কোনো পেমেন্ট এন্ট্রি করেননি।</p>';
+ }
+}
+window.reviewPayment=async(id,status)=>{
+ if(currentProfile?.role!=='admin')return;
+ const p=payments.find(x=>x.docId===id); if(!p)return;
+ if(!confirm(`এই পেমেন্ট ${status==='approved'?'Approve':'Reject'} করবেন?`))return;
+ try{await db.collection('payments').doc(id).update({status,reviewedBy:currentUser.uid,reviewedAt:firebase.firestore.FieldValue.serverTimestamp()});}
+ catch(err){alert('পরিবর্তন হয়নি: '+err.message);}
+};
+
+</script>
+</body></html>

@@ -33,6 +33,8 @@ label{display:block;font-size:13px;margin:8px 0 4px;color:#44516a}input,select,t
 <div class="card topline"><div><b id="welcome"></b><div id="roleLabel" class="muted"></div></div><button class="secondary" id="logout">লগআউট</button></div>
 <div id="adminPanel" class="hidden">
 <div class="card"><h2>Admin Dashboard</h2><div class="grid"><div class="item"><span class="muted">মোট গ্রাহক</span><h2 id="customerCount">0</h2></div><div class="item"><span class="muted">অনুমোদনের অপেক্ষায়</span><h2 id="pendingCount">0</h2></div></div><button class="danger" type="button" onclick="openDuePage()">বকেয়া তালিকা দেখুন</button></div>
+<div class="card"><h2>কোম্পানির Profile</h2><p class="muted">কোম্পানির নাম, ঠিকানা, ফোন ও ট্যাগলাইন সম্পাদনা করে সংরক্ষণ করুন।</p><form id="companyProfileForm"><div class="grid"><div><label>কোম্পানির নাম</label><input id="companyName" maxlength="100" placeholder="যেমন S A Communication"></div><div><label>যোগাযোগের ফোন</label><input id="companyPhone" type="tel" inputmode="tel" maxlength="20"></div><div><label>ঠিকানা</label><input id="companyAddress" maxlength="200"></div><div><label>ট্যাগলাইন</label><input id="companyTagline" maxlength="200"></div></div><button type="submit">Profile সংরক্ষণ / Edit</button><button class="danger" type="button" id="deleteCompanyProfile">Profile Delete</button></form><div id="companyProfileStatus" class="muted"></div></div>
+<div class="card"><h2>কোম্পানির Logo</h2><div id="companyLogoPreview" class="item muted">এখনও Logo যোগ করা হয়নি।</div><label>নতুন Logo নির্বাচন করুন</label><input id="companyLogoFile" type="file" accept="image/*"><button type="button" id="saveCompanyLogo">Logo আপলোড / Edit</button><button class="danger" type="button" id="deleteCompanyLogo">Logo Delete</button><p class="muted">ছবি ছোট করে সংরক্ষণ করা হবে, যাতে Firestore-এ সংরক্ষণ করা সহজ হয়।</p></div>
 <div class="card"><h2>Staff অ্যাকাউন্ট তৈরি</h2>
 <form id="staffForm"><div class="grid"><div><label>Staff-এর নাম</label><input id="staffName" required></div><div><label>Staff-এর মোবাইল নম্বর</label><input id="staffPhone" type="tel" inputmode="numeric" autocomplete="tel" maxlength="11" placeholder="01XXXXXXXXX" required></div><div><label>অস্থায়ী পাসওয়ার্ড (কমপক্ষে ৬ অক্ষর)</label><input id="staffPassword" type="password" minlength="6" required></div></div><button type="submit">Staff তৈরি করুন</button></form><p class="muted">Staff-কে তার মোবাইল নম্বর ও পাসওয়ার্ড দিন।</p></div>
 <div class="card"><h2>তৈরি করা Staff তালিকা</h2><div id="staffList"><p class="muted">Staff তালিকা লোড হচ্ছে…</p></div></div>
@@ -80,7 +82,7 @@ if (!configured) {
 let auth = configured ? firebase.auth() : null;
 let db = configured ? firebase.firestore() : null;
 let secondaryApp = null, currentUser = null, currentProfile = null;
-let customers = [], payments = [], staffAccounts = [], unsubs = [];
+let customers = [], payments = [], staffAccounts = [], companyProfile = {}, unsubs = [];
 function escapeHtml(s=''){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function money(n){return '৳'+Number(n||0).toLocaleString('en-BD',{maximumFractionDigits:2});}
 function statusPill(s){const map={pending:'অপেক্ষমাণ',approved:'অনুমোদিত',rejected:'বাতিল'};return `<span class="pill ${s}">${map[s]||s}</span>`;}
@@ -128,6 +130,7 @@ function startLiveData(){
  unsubs.push(db.collection('customers').orderBy('customerId').onSnapshot(s=>{customers=s.docs.map(d=>({docId:d.id,...d.data()}));renderCustomers();},e=>message('গ্রাহকের তথ্য: '+e.message,'error')));
  unsubs.push(db.collection('payments').orderBy('createdAt','desc').onSnapshot(s=>{payments=s.docs.map(d=>({docId:d.id,...d.data()}));renderPayments();},e=>message('পেমেন্টের তথ্য: '+e.message,'error')));
  if(currentProfile?.role==='admin') unsubs.push(db.collection('users').where('role','==','staff').onSnapshot(s=>{staffAccounts=s.docs.map(d=>({docId:d.id,...d.data()}));renderStaffList();},e=>{ $('staffList').innerHTML='<p class="msg error">Staff তালিকা পড়া যায়নি: '+escapeHtml(e.message)+'</p>'; }));
+ if(currentProfile?.role==='admin') unsubs.push(db.collection('company').doc('profile').onSnapshot(s=>{companyProfile=s.exists?(s.data()||{}):{};renderCompanyProfile();},e=>{ $('companyProfileStatus').textContent='Profile পড়া যায়নি: '+e.message; }));
 }
 function renderStaffList(){
  const el=$('staffList'); if(!el)return;
@@ -169,6 +172,70 @@ $('staffForm').addEventListener('submit', async e => {
     alert('Staff তৈরি হয়নি: ' + err.message);
   }
 });
+function renderCompanyProfile(){
+  if(!$('companyName')) return;
+  $('companyName').value=companyProfile.name||'';
+  $('companyPhone').value=companyProfile.phone||'';
+  $('companyAddress').value=companyProfile.address||'';
+  $('companyTagline').value=companyProfile.tagline||'';
+  $('companyProfileStatus').textContent=companyProfile.updatedAt?'সর্বশেষ আপডেট সংরক্ষিত।':'Profile তথ্য পাওয়া যায়নি বা এখনও সংরক্ষণ করা হয়নি।';
+  const preview=$('companyLogoPreview');
+  preview.innerHTML=companyProfile.logoData
+    ? `<img src="${companyProfile.logoData}" alt="Company Logo" style="max-width:180px;max-height:140px;object-fit:contain;display:block;margin-bottom:8px"><span>${escapeHtml(companyProfile.name||'কোম্পানির Logo')}</span>`
+    : 'এখনও Logo যোগ করা হয়নি।';
+}
+$('companyProfileForm').addEventListener('submit',async e=>{
+  e.preventDefault();
+  if(currentProfile?.role!=='admin') return alert('শুধু Admin Profile সম্পাদনা করতে পারবেন।');
+  const data={name:$('companyName').value.trim(),phone:$('companyPhone').value.trim(),address:$('companyAddress').value.trim(),tagline:$('companyTagline').value.trim(),updatedAt:firebase.firestore.FieldValue.serverTimestamp(),updatedBy:currentUser.uid};
+  if(!data.name && !data.phone && !data.address && !data.tagline) return alert('Profile-এর অন্তত একটি তথ্য লিখুন।');
+  try{await db.collection('company').doc('profile').set(data,{merge:true});alert('কোম্পানির Profile সংরক্ষণ হয়েছে।');}
+  catch(err){alert('Profile সংরক্ষণ হয়নি: '+err.message);}
+});
+$('deleteCompanyProfile').addEventListener('click',async()=>{
+  if(currentProfile?.role!=='admin') return alert('শুধু Admin Profile মুছতে পারবেন।');
+  if(!confirm('কোম্পানির নাম, ফোন, ঠিকানা ও ট্যাগলাইন মুছবেন? Logo আলাদা থাকলে সেটি থাকবে।')) return;
+  try{
+    const del= firebase.firestore.FieldValue.delete();
+    await db.collection('company').doc('profile').set({name:del,phone:del,address:del,tagline:del,updatedAt:firebase.firestore.FieldValue.serverTimestamp(),updatedBy:currentUser.uid},{merge:true});
+    $('companyProfileForm').reset(); alert('কোম্পানির Profile তথ্য মুছে দেওয়া হয়েছে।');
+  }catch(err){alert('Profile মুছতে পারেনি: '+err.message);}
+});
+function readCompressedLogo(file){
+ return new Promise((resolve,reject)=>{
+   if(!file || !file.type.startsWith('image/')) return reject(new Error('একটি ছবি নির্বাচন করুন।'));
+   const reader=new FileReader();
+   reader.onerror=()=>reject(new Error('ছবি পড়া যায়নি।'));
+   reader.onload=()=>{
+     const img=new Image();
+     img.onerror=()=>reject(new Error('ছবিটি খোলা যায়নি।'));
+     img.onload=()=>{
+       const max=320, scale=Math.min(1,max/Math.max(img.width,img.height));
+       const canvas=document.createElement('canvas'); canvas.width=Math.max(1,Math.round(img.width*scale)); canvas.height=Math.max(1,Math.round(img.height*scale));
+       const ctx=canvas.getContext('2d'); ctx.fillStyle='#ffffff'; ctx.fillRect(0,0,canvas.width,canvas.height); ctx.drawImage(img,0,0,canvas.width,canvas.height);
+       const data=canvas.toDataURL('image/jpeg',0.72);
+       if(data.length>750000) return reject(new Error('ছবিটি এখনও বড়। ছোট Logo ছবি নির্বাচন করুন।'));
+       resolve(data);
+     };
+     img.src=reader.result;
+   };
+   reader.readAsDataURL(file);
+ });
+}
+$('saveCompanyLogo').addEventListener('click',async()=>{
+  if(currentProfile?.role!=='admin') return alert('শুধু Admin Logo পরিবর্তন করতে পারবেন।');
+  const file=$('companyLogoFile').files[0]; if(!file) return alert('আগে Logo ছবি নির্বাচন করুন।');
+  try{const logoData=await readCompressedLogo(file); await db.collection('company').doc('profile').set({logoData,logoUpdatedAt:firebase.firestore.FieldValue.serverTimestamp(),updatedBy:currentUser.uid},{merge:true}); $('companyLogoFile').value=''; alert('Logo সংরক্ষণ হয়েছে।');}
+  catch(err){alert('Logo সংরক্ষণ হয়নি: '+err.message);}
+});
+$('deleteCompanyLogo').addEventListener('click',async()=>{
+  if(currentProfile?.role!=='admin') return alert('শুধু Admin Logo মুছতে পারবেন।');
+  if(!companyProfile.logoData) return alert('মুছার মতো Logo নেই।');
+  if(!confirm('কোম্পানির Logo মুছে ফেলবেন?')) return;
+  try{await db.collection('company').doc('profile').set({logoData:firebase.firestore.FieldValue.delete(),logoUpdatedAt:firebase.firestore.FieldValue.serverTimestamp(),updatedBy:currentUser.uid},{merge:true}); alert('Logo মুছে ফেলা হয়েছে।');}
+  catch(err){alert('Logo মুছতে পারেনি: '+err.message);}
+});
+
 $('customerForm').addEventListener('submit',async e=>{
  e.preventDefault(); if(currentProfile?.role!=='admin')return;
  const customerId=$('customerId').value.trim().toUpperCase();

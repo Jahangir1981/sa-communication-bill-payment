@@ -69,15 +69,32 @@ const configured = !Object.values(firebaseConfig).some(v => String(v).includes("
 const $ = id => document.getElementById(id);
 const show = (id, yes=true) => $(id).classList.toggle('hidden', !yes);
 function message(s, kind=''){ $('notice').textContent=s; $('notice').className='msg '+kind; show('notice'); }
-if (!configured) { message('Firebase config বসানো হয়নি। প্রথমে firebaseConfig অংশে আপনার নতুন Firebase Web App-এর config বসান।','error'); }
-else { firebase.initializeApp(firebaseConfig); }
-let auth=null, db=null, secondaryApp=null, currentUser=null, currentProfile=null, customers=[], payments=[], unsubs=[];
-if (configured) { auth=firebase.auth(); db=firebase.firestore(); }
-function escapeHtml(s=''){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
-function money(n){return '৳'+Number(n||0).toLocaleString('en-BD',{maximumFractionDigits:2});}
-function statusPill(s){const map={pending:'অপেক্ষমাণ',approved:'অনুমোদিত',rejected:'বাতিল'};return `<span class="pill ${s}">${map[s]||s}</span>`;}
-function clearSubs(){unsubs.forEach(f=>f());unsubs=[];}
-$('loginForm').addEventListener('submit',async e=>{e.preventDefault();if(!configured)return message('Firebase config বসান, তারপর লগইন করুন।','error');try{await auth.signInWithEmailAndPassword($('email').value.trim(),$('password').value);message('লগইন হচ্ছে…','success');}catch(err){message('লগইন হয়নি: '+err.message,'error');}});
+$('loginForm').addEventListener('submit', async e => {
+  e.preventDefault();
+
+  if (!configured) {
+    return message('Firebase config বসান, তারপর লগইন করুন।', 'error');
+  }
+
+  const loginId = $('email').value.trim();
+  const password = $('password').value;
+  let loginEmail = loginId;
+
+  // Staff-এর বাংলাদেশি মোবাইল নম্বরকে অভ্যন্তরীণ লগইন ইমেইলে রূপান্তর
+  const phone = loginId.replace(/[\s-]/g, '');
+
+  if (/^01[3-9]\d{8}$/.test(phone)) {
+    loginEmail = phone + '@staff.sa-communication.local';
+  }
+
+  try {
+    await auth.signInWithEmailAndPassword(loginEmail, password);
+    message('লগইন হচ্ছে…', 'success');
+  } catch (err) {
+    message('লগইন হয়নি: ' + err.message, 'error');
+  }
+});
+
 $('logout').onclick=()=>auth.signOut();
 if(auth) auth.onAuthStateChanged(async user=>{
  clearSubs(); currentUser=user; currentProfile=null;

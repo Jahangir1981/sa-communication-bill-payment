@@ -43,7 +43,8 @@ label{display:block;font-size:13px;margin:8px 0 4px;color:#44516a}input,select,t
 <div class="card"><h2>তৈরি করা Staff তালিকা</h2><div id="staffList"><p class="muted">Staff তালিকা লোড হচ্ছে…</p></div></div>
 <div class="card"><h2>নতুন গ্রাহক তৈরি</h2>
 <form id="customerForm"><div class="grid"><div><label>গ্রাহক ID</label><input id="customerId" required placeholder="যেমন SA001"></div><div><label>গ্রাহকের নাম</label><input id="customerName" required></div><div><label>মোবাইল</label><input id="customerPhone" inputmode="tel"></div><div><label>মাসিক বিল (৳)</label><input id="monthlyBill" type="number" min="0" step="0.01" required></div><div><label>পরবর্তী বিল দেওয়ার তারিখ</label><input id="dueDate" type="date" required></div></div><button type="submit">গ্রাহক সংরক্ষণ</button></form></div>
-<div class="card"><h2>পেমেন্ট অনুমোদন</h2><div id="adminPayments"></div></div>
+<div class="card"><h2>পেমেন্ট অনুমোদন</h2><p class="muted">এখানে শুধু অনুমোদনের অপেক্ষায় থাকা পেমেন্ট দেখাবে।</p><div id="adminPayments"></div></div>
+<div class="card"><div class="topline"><div><h2>পেমেন্ট রিপোর্ট</h2><p class="muted">অনুমোদিত ও বাতিল পেমেন্টের পুরোনো তথ্য এখানে দেখুন।</p></div><button class="secondary" type="button" id="togglePaymentReports" onclick="togglePaymentReports()">রিপোর্ট দেখুন</button></div><div id="paymentReports" class="hidden"><div id="paymentReportsList"></div></div></div>
 <div class="card"><h2>গ্রাহক তালিকা</h2><input id="customerSearch" placeholder="ID / নাম / মোবাইল দিয়ে খুঁজুন"><div id="customerList"></div></div>
 </div>
 <div id="duePage" class="hidden">
@@ -365,11 +366,22 @@ window.printPaymentReceipt = async p => {
   win.document.close();
 };
 
+function togglePaymentReports(){
+ const panel=$('paymentReports');
+ const button=$('togglePaymentReports');
+ const opening=panel.classList.contains('hidden');
+ panel.classList.toggle('hidden',!opening);
+ button.textContent=opening?'রিপোর্ট লুকান':'রিপোর্ট দেখুন';
+}
+
 function renderPayments(){
  renderCustomers();
  const pending=payments.filter(p=>p.status==='pending'); $('pendingCount').textContent=pending.length;
  if(currentProfile?.role==='admin'){
- $('adminPayments').innerHTML=payments.map(p=>`<div class="item"><strong>${escapeHtml(p.customerId)} — ${escapeHtml(p.customerName)}</strong><br>${money(p.amount)} · তারিখ: ${escapeHtml(p.paymentDate||'—')}<br><span class="muted">Staff: ${escapeHtml(p.staffName||'—')}</span><br>${statusPill(p.status)} ${p.status==='pending'?`<button class="good" onclick="reviewPayment('${p.docId}','approved')">Approve</button><button class="danger" onclick="reviewPayment('${p.docId}','rejected')">Reject</button>`:''}</div>`).join('')||'<p class="muted">এখনও কোনো পেমেন্ট নেই।</p>';
+ const waiting=payments.filter(p=>p.status==='pending');
+ $('adminPayments').innerHTML=waiting.map(p=>`<div class="item"><strong>${escapeHtml(p.customerId)} — ${escapeHtml(p.customerName)}</strong><br>${money(p.amount)} · বিলের মাস: ${escapeHtml(p.billMonth||'—')} · তারিখ: ${escapeHtml(p.paymentDate||'—')}<br><span class="muted">Staff: ${escapeHtml(p.staffName||'—')}</span><br>${statusPill(p.status)} <button class="good" onclick="reviewPayment('${p.docId}','approved')">অনুমোদন</button><button class="danger" onclick="reviewPayment('${p.docId}','rejected')">বাতিল</button></div>`).join('')||'<p class="muted">এখন কোনো পেমেন্ট অনুমোদনের অপেক্ষায় নেই।</p>';
+ const reviewed=payments.filter(p=>p.status==='approved'||p.status==='rejected').sort((a,b)=>(b.paymentDate||'').localeCompare(a.paymentDate||''));
+ $('paymentReportsList').innerHTML=reviewed.map(p=>`<div class="item"><strong>${escapeHtml(p.customerId)} — ${escapeHtml(p.customerName)}</strong><br>${money(p.amount)} · বিলের মাস: ${escapeHtml(p.billMonth||'—')} · তারিখ: ${escapeHtml(p.paymentDate||'—')}<br><span class="muted">Staff: ${escapeHtml(p.staffName||'—')}</span><br>${statusPill(p.status)}</div>`).join('')||'<p class="muted">এখনও কোনো অনুমোদিত বা বাতিল পেমেন্টের রিপোর্ট নেই।</p>';
  } else if(currentProfile?.role==='staff'){
  const mine=payments.filter(p=>p.staffUid===currentUser.uid);
  $('staffPayments').innerHTML=mine.map(p=>`<div class="item"><strong>${escapeHtml(p.customerId)} — ${escapeHtml(p.customerName)}</strong><br>${money(p.amount)} · বিলের মাস: ${escapeHtml(p.billMonth||'—')} · ${escapeHtml(p.paymentDate||'—')}<br>${statusPill(p.status)}<br><button type="button" class="secondary" onclick="printPaymentReceiptById('${escapeHtml(p.docId)}')">রশিদ প্রিন্ট</button></div>`).join('')||'<p class="muted">এখনও কোনো পেমেন্ট এন্ট্রি করেননি।</p>';

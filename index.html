@@ -262,6 +262,32 @@ function getCustomerMonthTotals(c){
  const due = Math.max(0, monthlyBill - paid);
  return {paid, due};
 }
+
+// Prepaid validity is controlled by the customer's scheduled monthly billing date.
+function customerIsActive(c){
+ const expiry=String(c.dueDate||'');
+ return !!expiry && localDateKey() <= expiry;
+}
+function nextMonthlyDueDate(currentDueDate, paymentDate){
+ if(!/^\d{4}-\d{2}-\d{2}$/.test(String(currentDueDate||''))) return '';
+ const [y,m,d]=currentDueDate.split('-').map(Number);
+ const [py,pm,pd]=String(paymentDate||localDateKey()).split('-').map(Number);
+ if(!py||!pm||!pd) return '';
+ // Keep the original scheduled day-of-month; clamp to month end where needed.
+ let yy=y, mm=m;
+ const makeDate=(year,month,day)=>{
+   while(month>12){month-=12;year++;}
+   const last=new Date(year,month,0).getDate();
+   return `${year}-${String(month).padStart(2,'0')}-${String(Math.min(day,last)).padStart(2,'0')}`;
+ };
+ mm++; if(mm>12){mm=1;yy++;}
+ let next=makeDate(yy,mm,d);
+ while(next <= String(paymentDate||localDateKey())){
+   mm++; if(mm>12){mm=1;yy++;}
+   next=makeDate(yy,mm,d);
+ }
+ return next;
+}
 function moneyBoxes(c){
  const t = getCustomerMonthTotals(c);
  return `<div class="money-boxes">
@@ -298,10 +324,10 @@ function renderCustomers(){
  $('customerCount').textContent=customers.length;
  const q=($('customerSearch')?.value||'').toLowerCase();
  const filtered=customers.filter(c=>[c.customerId,c.name,c.phone].some(x=>String(x||'').toLowerCase().includes(q)));
- $('customerList').innerHTML=filtered.map(c=>{const t=getCustomerMonthTotals(c);const paid=t.due<=0;return `<div class="item"><div class="customer-line-wrap"><div class="customer-line"><span class="field">ID: <b>${escapeHtml(c.customerId)}</b></span><span class="customer-name">${escapeHtml(c.name)}</span><span class="field">মোবাইল: ${escapeHtml(c.phone||'—')}</span><span class="field">মাসিক বিল: ${money(c.monthlyBill)}</span><span class="customer-status ${paid?'is-paid':'is-due'}">${paid?'✓ পরিশোধিত':'● বকেয়া'}</span></div></div>${moneyBoxes(c)}${currentProfile?.role==='admin'?`<div><button class="secondary" onclick="editCustomer('${escapeHtml(c.docId)}')">Edit / সম্পাদনা</button><button class="danger" onclick="deleteCustomer('${escapeHtml(c.docId)}')">Delete / মুছুন</button></div>`:''}</div>`}).join('')||'<p class="muted">কোনো গ্রাহক পাওয়া যায়নি।</p>';
+ $('customerList').innerHTML=filtered.map(c=>{const t=getCustomerMonthTotals(c);const paid=customerIsActive(c);return `<div class="item"><div class="customer-line-wrap"><div class="customer-line"><span class="field">ID: <b>${escapeHtml(c.customerId)}</b></span><span class="customer-name">${escapeHtml(c.name)}</span><span class="field">মোবাইল: ${escapeHtml(c.phone||'—')}</span><span class="field">মাসিক বিল: ${money(c.monthlyBill)}</span><span class="customer-status ${paid?'is-paid':'is-due'}">${paid?'✓ Active':'● Disabled'}</span></div></div>${moneyBoxes(c)}${currentProfile?.role==='admin'?`<div><button class="secondary" onclick="editCustomer('${escapeHtml(c.docId)}')">Edit / সম্পাদনা</button><button class="danger" onclick="deleteCustomer('${escapeHtml(c.docId)}')">Delete / মুছুন</button></div>`:''}</div>`}).join('')||'<p class="muted">কোনো গ্রাহক পাওয়া যায়নি।</p>';
  const sq=($('staffSearch')?.value||'').toLowerCase();
  const sf=customers.filter(c=>[c.customerId,c.name,c.phone].some(x=>String(x||'').toLowerCase().includes(sq)));
- $('staffCustomerList').innerHTML=sf.map(c=>{const t=getCustomerMonthTotals(c);const paid=t.due<=0;return `<div class="item"><div class="customer-line-wrap"><div class="customer-line"><span class="field">ID: <b>${escapeHtml(c.customerId)}</b></span><span class="customer-name">${escapeHtml(c.name)}</span><span class="field">মোবাইল: ${escapeHtml(c.phone||'—')}</span><span class="field">মাসিক বিল: ${money(c.monthlyBill)}</span><span class="customer-status ${paid?'is-paid':'is-due'}">${paid?'✓ পরিশোধিত':'● বকেয়া'}</span></div></div>${moneyBoxes(c)}<div><button onclick="payFor('${escapeHtml(c.docId)}')">পেমেন্ট এন্ট্রি</button></div></div>`}).join('')||'<p class="muted">গ্রাহক খুঁজুন।</p>';
+ $('staffCustomerList').innerHTML=sf.map(c=>{const t=getCustomerMonthTotals(c);const paid=customerIsActive(c);return `<div class="item"><div class="customer-line-wrap"><div class="customer-line"><span class="field">ID: <b>${escapeHtml(c.customerId)}</b></span><span class="customer-name">${escapeHtml(c.name)}</span><span class="field">মোবাইল: ${escapeHtml(c.phone||'—')}</span><span class="field">মাসিক বিল: ${money(c.monthlyBill)}</span><span class="customer-status ${paid?'is-paid':'is-due'}">${paid?'✓ Active':'● Disabled'}</span></div></div>${moneyBoxes(c)}<div><button onclick="payFor('${escapeHtml(c.docId)}')">পেমেন্ট এন্ট্রি</button></div></div>`}).join('')||'<p class="muted">গ্রাহক খুঁজুন।</p>';
  if(!$('duePage').classList.contains('hidden')) renderDueList();
 }
 window.editCustomer = async id => {
@@ -462,8 +488,17 @@ window.reviewPayment=async(id,status)=>{
  if(currentProfile?.role!=='admin')return;
  const p=payments.find(x=>x.docId===id); if(!p)return;
  if(!confirm(`এই পেমেন্ট ${status==='approved'?'Approve':'Reject'} করবেন?`))return;
- try{await db.collection('payments').doc(id).update({status,reviewedBy:currentUser.uid,reviewedAt:firebase.firestore.FieldValue.serverTimestamp()});}
- catch(err){alert('পরিবর্তন হয়নি: '+err.message);}
+ try{
+   const update={status,reviewedBy:currentUser.uid,reviewedAt:firebase.firestore.FieldValue.serverTimestamp()};
+   if(status==='approved'){
+     const customer=customers.find(c=>c.docId===p.customerDocId || c.customerId===p.customerId);
+     if(customer){
+       const nextDueDate=nextMonthlyDueDate(customer.dueDate,p.paymentDate);
+       if(nextDueDate) await db.collection('customers').doc(customer.docId).update({dueDate:nextDueDate,updatedAt:firebase.firestore.FieldValue.serverTimestamp(),updatedBy:currentUser.uid});
+     }
+   }
+   await db.collection('payments').doc(id).update(update);
+ }catch(err){alert('পরিবর্তন হয়নি: '+err.message);}
 };
 
 </script>
